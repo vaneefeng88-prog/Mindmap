@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cabinity — System Architecture</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f5f4f1; --surface: #ffffff;
+  --border: rgba(0,0,0,0.09); --border-md: rgba(0,0,0,0.18);
+  --text-1: #1a1a18; --text-2: #6b6a65; --text-3: #a09f99;
+  --radius: 7px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 14px rgba(0,0,0,0.09);
+  --line: rgba(0,0,0,0.11);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181816; --surface: #222220;
+    --border: rgba(255,255,255,0.09); --border-md: rgba(255,255,255,0.18);
+    --text-1: #e6e4de; --text-2: #9e9d97; --text-3: #6b6a65;
+    --line: rgba(255,255,255,0.10);
+  }
+}
+body { background:var(--bg); color:var(--text-1); font-family:-apple-system,'Helvetica Neue',Arial,sans-serif; min-height:100vh; }
+.header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; background:var(--surface); border-bottom:0.5px solid var(--border-md); position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px; }
+.logo { font-size:15px; font-weight:600; letter-spacing:-0.02em; }
+.logo span { color:var(--text-3); font-weight:400; font-size:13px; margin-left:6px; }
+.toolbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.btn { font-size:11.5px; font-family:inherit; padding:4px 11px; border-radius:6px; cursor:pointer; color:var(--text-1); background:var(--surface); border:0.5px solid var(--border-md); transition:background 0.1s; white-space:nowrap; }
+.btn:hover { background:var(--bg); }
+.btn.danger { color:#a32d2d; border-color:rgba(163,45,45,0.28); }
+.hint { font-size:11px; color:var(--text-3); }
+.canvas-outer { overflow-x:auto; padding:24px 24px 40px; }
+#mm { display:inline-flex; align-items:flex-start; gap:0; min-width:max-content; }
+.nc { display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border-radius:var(--radius); border:0.5px solid var(--border-md); background:var(--surface); box-shadow:var(--shadow); cursor:pointer; user-select:none; white-space:nowrap; transition:box-shadow 0.12s,border-color 0.12s; }
+.nc:hover { box-shadow:var(--shadow-lg); }
+.nc.sel { outline:2px solid rgba(127,119,221,0.4); outline-offset:1px; }
+.nc.editing { outline:2px solid #7F77DD; outline-offset:1px; }
+.nc .lbl { font-size:12px; color:var(--text-1); }
+.nc .lbl.bold { font-weight:500; }
+.nc .lbl.root { font-weight:600; font-size:13px; }
+.nc .lbl.l1 { font-weight:500; font-size:12px; }
+.nc input.edit-inp { font-size:12px; font-family:inherit; background:transparent; border:none; outline:none; color:var(--text-1); min-width:70px; text-align:center; }
+.arr { font-size:9px; color:var(--text-3); transition:transform 0.15s; flex-shrink:0; }
+.arr.c { transform:rotate(-90deg); }
+.dot { width:5px; height:5px; border-radius:50%; background:var(--text-3); flex-shrink:0; margin-left:2px; opacity:0.45; }
+.meta-panel { position:fixed; bottom:20px; right:20px; background:var(--surface); border:0.5px solid var(--border-md); border-radius:10px; box-shadow:var(--shadow-lg); padding:14px 16px; max-width:300px; min-width:220px; z-index:200; display:none; animation:fadeUp 0.15s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+.meta-panel.show { display:block; }
+.meta-panel h4 { font-size:12px; font-weight:600; margin-bottom:8px; padding-right:16px; }
+.meta-row { display:flex; gap:6px; margin-bottom:6px; }
+.meta-row-lbl { font-size:11px; color:var(--text-3); min-width:42px; flex-shrink:0; margin-top:1px; }
+.meta-row-val { font-size:11px; color:var(--text-2); line-height:1.6; }
+.close-btn { float:right; font-size:14px; cursor:pointer; color:var(--text-3); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Cabinity <span>System Architecture</span></div>
+  <div class="toolbar">
+    <button class="btn" onclick="addChild()">+ 子节点</button>
+    <button class="btn" onclick="addSibling()">+ 同级节点</button>
+    <button class="btn danger" onclick="deleteSel()">删除选中</button>
+    <button class="btn" onclick="renameSel()">重命名</button>
+    <button class="btn" onclick="expandAll()">展开全部</button>
+    <button class="btn" onclick="collapseAll()">折叠全部</button>
+    <span class="hint">双击编辑 · 单击选中 · 再次单击折叠 · 有 · 的节点可查看功能说明</span>
+  </div>
+</div>
+
+<div class="canvas-outer"><div id="mm"></div></div>
+
+<div class="meta-panel" id="metaPanel">
+  <span class="close-btn" onclick="closePanel()">✕</span>
+  <h4 id="mp-title"></h4>
+  <div class="meta-row" id="mp-f"><span class="meta-row-lbl">功能</span><span class="meta-row-val" id="mp-fv"></span></div>
+  <div class="meta-row" id="mp-a"><span class="meta-row-lbl">架构</span><span class="meta-row-val" id="mp-av"></span></div>
+</div>
+
+<script>
+const DATA = {
+  id:'root',label:'Cabinity',color:'#7F77DD',textColor:'#fff',
+  children:[
+    { id:'pw',label:'1. Public Website',color:'#1D9E75',textColor:'#fff',
+      func:'公开网站，面向所有访客。建立平台认知，引导客户和专业人士进入各自入口。',arch:'WordPress',
+      children:[
+        { id:'pw-home',label:'Home',func:'解释 Cabinity 是什么，建立平台认知，引导访客找到对应入口。',arch:'WordPress 首页，含 Hero、服务介绍、案例预览、CTA 按钮。' },
+        { id:'pw-svc',label:'Services',color:'#1D9E75',func:'展示客户可以购买或申请的服务，配合 CTA 跳转 Portal 表单。',arch:'WordPress 服务页 + CTA 按钮跳转 Portal 表单。',
+          children:[
+            {id:'svc-m',label:'Measurement'},{id:'svc-t',label:'Takeoff'},
+            {id:'svc-c',label:'CAD / SketchUp'},{id:'svc-r',label:'Rendering'},{id:'svc-s',label:'Scanner Rental'}
+          ]
+        },
+        { id:'pw-sup',label:'Supplier Network',color:'#1D9E75',func:'展示平台生态和供应资源，帮助客户了解合作供应商。',arch:'WordPress profile / directory 页面。',
+          children:[
+            {id:'sup-im',label:'IM'},{id:'sup-gcs',label:'GCS'},{id:'sup-cr',label:'CR'},{id:'sup-o',label:'Other Suppliers'}
+          ]
+        },
+        { id:'pw-pronet',label:'Professional Network',color:'#1D9E75',func:'展示入驻专业人士，类似 Houzz 的 pro profile，增强平台可信度。',arch:'WordPress directory 页面，早期由后台审核后发布。',
+          children:[
+            {id:'pn-d',label:'Designers'},{id:'pn-c',label:'Cabinet Makers'},
+            {id:'pn-i',label:'Installers'},{id:'pn-m',label:'Measurement Partners'}
+          ]
+        },
+        { id:'pw-insp',label:'Projects / Inspiration',func:'展示案例、风格、材料、rendering、before/after，吸引客户和合作方。',arch:'WordPress gallery / case study 页面。' },
+        { id:'pw-login',label:'Login',color:'#7F77DD',textColor:'#fff',func:'客户和入驻方分别进入自己的后台。',arch:'WordPress 登录按钮跳转独立 Portal（Softr）。',
+          children:[
+            {id:'lg-cli',label:'Client Portal'},{id:'lg-pro',label:'Pro / Partner Portal'}
+          ]
+        }
+      ]
+    },
+    { id:'cp',label:'2. Client Portal',color:'#185FA5',textColor:'#fff',
+      func:'客户专属后台，管理项目、文件、订单、付款。',arch:'Softr Portal，数据来自 Airtable，文件存储于 Drive / Dropbox。',
+      children:[
+        { id:'cp-dash',label:'Dashboard',func:'客户登录后看到当前项目状态、待处理事项、最近交付物。',arch:'Portal dashboard，只显示该客户自己的项目。' },
+        { id:'cp-proj',label:'My Projects',func:'客户查看所有历史项目和正在进行的项目。',arch:'项目列表，每个项目进入 Project Detail。' },
+        { id:'cp-det',label:'Project Detail',color:'#185FA5',func:'客户查看单个项目的完整记录，包含所有文件和交付物。',arch:'每个项目独立页面，所有文件和交付物绑定该项目。',
+          children:[
+            {id:'pd-s',label:'Project Summary'},{id:'pd-st',label:'Status'},
+            {id:'pd-u',label:'Uploaded Files'},{id:'pd-d',label:'Deliverables'},
+            {id:'pd-o',label:'Orders / Services'},{id:'pd-n',label:'Notes'}
+          ]
+        },
+        { id:'cp-upl',label:'Upload Files',func:'客户上传图纸、照片、PDF、scan 文件、site measurement 文件。',arch:'Portal 文件上传模块，客户选择对应 Project 后上传，存入 Drive / Dropbox。' },
+        { id:'cp-del',label:'Deliverables',func:'客户下载交付的 takeoff、CAD、SketchUp、rendering、quote、presentation package。',arch:'Portal 文件展示 / 下载模块，按项目和版本显示。' },
+        { id:'cp-ord',label:'My Orders',func:'客户查看已购买服务和订单历史，例如 Takeoff、Measurement、Rendering。',arch:'订单列表，绑定项目，数据来自 Airtable。' },
+        { id:'cp-pay',label:'Payments / Invoices',func:'客户查看付款状态、invoice、payment link。',arch:'Portal 付款记录页面，可连接 Stripe / payment link。' }
+      ]
+    },
+    { id:'pp',label:'3. Pro / Partner Portal',color:'#BA7517',textColor:'#fff',
+      func:'入驻专业人士和供应商的专属后台，管理 profile、线索、文件资质。',arch:'Softr Portal，数据来自 Airtable，文件存储于 Drive / Dropbox。',
+      children:[
+        { id:'pp-dash',label:'Partner Dashboard',func:'入驻方查看自己的 profile 状态、线索、待完善资料。',arch:'独立 Partner Portal 页面。' },
+        { id:'pp-edit',label:'Edit Profile',func:'设计师、cabinet maker、supplier 编辑公司信息、服务范围、portfolio。',arch:'Profile form，提交后由平台审核发布。' },
+        { id:'pp-port',label:'Portfolio / Product Upload',func:'上传案例图片、产品资料、catalog、公司介绍。',arch:'文件上传模块，绑定 Partner Profile，存入 Drive / Dropbox。' },
+        { id:'pp-leads',label:'Leads / Requests',func:'查看平台分配或客户提交的 inquiry。',arch:'线索列表，早期人工分配，数据来自 Airtable。' },
+        { id:'pp-docs',label:'Documents',func:'上传资质、保险、证书、产品文件。',arch:'文件上传与审核模块。' }
+      ]
+    },
+    { id:'adm',label:'4. Admin Panel',color:'#A32D2D',textColor:'#fff',
+      func:'平台内部后台，不对客户展示。管理客户、项目、文件、合作方、订单。',arch:'Airtable（数据）+ FlowUs（生产流程）+ Drive / Dropbox（文件）。',
+      children:[
+        { id:'adm-c',label:'Customer Management',func:'管理客户账号、公司、联系人。',arch:'Airtable Customers / Users 表。' },
+        { id:'adm-p',label:'Project Management',func:'查看所有项目、状态、上传文件、交付物。',arch:'Airtable Projects 表 + FlowUs 生产流程追踪。' },
+        { id:'adm-f',label:'File Management',func:'审核客户上传文件，上传最终交付物。',arch:'Airtable Files / Deliverables 表 + Drive / Dropbox 实际存储。' },
+        { id:'adm-pt',label:'Partner Management',func:'审核入驻方、发布 / 隐藏 profile。',arch:'Airtable Partners 表。' },
+        { id:'adm-o',label:'Order / Payment Management',func:'管理服务订单、付款状态、invoice。',arch:'Airtable Orders / Payments 表 + Stripe。' }
+      ]
+    }
+  ]
+};
+
+let collapsed={}, selected=null, editingId=null, nc=200;
+
+function getNode(id,t){if(!t)t=DATA;if(t.id===id)return t;if(t.children)for(const c of t.children){const f=getNode(id,c);if(f)return f;}return null;}
+function getParent(id,t){if(!t)t=DATA;if(t.children){for(let i=0;i<t.children.length;i++){if(t.children[i].id===id)return{parent:t,index:i};const f=getParent(id,t.children[i]);if(f)return f;}}return null;}
+
+function render(){const mm=document.getElementById('mm');mm.innerHTML='';mm.appendChild(buildGroup(DATA,0));}
+
+function buildGroup(node,depth){
+  const wrap=document.createElement('div');
+  wrap.style.cssText='display:flex;align-items:flex-start;gap:0;';
+  wrap.appendChild(buildCard(node,depth));
+  if(node.children&&node.children.length&&!collapsed[node.id]){
+    const connW=document.createElement('div');
+    connW.style.cssText='display:flex;align-items:stretch;gap:0;';
+    const vw=depth===0?28:22;
+    const vDiv=document.createElement('div');
+    vDiv.style.cssText=`width:${vw}px;position:relative;align-self:stretch;flex-shrink:0;`;
+    connW.appendChild(vDiv);
+    const stack=document.createElement('div');
+    stack.style.cssText='display:flex;flex-direction:column;gap:4px;';
+    node.children.forEach(child=>{
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:flex-start;gap:0;';
+      row.appendChild(buildGroup(child,depth+1));
+      stack.appendChild(row);
+    });
+    connW.appendChild(stack);
+    wrap.appendChild(connW);
+    setTimeout(()=>{
+      const items=Array.from(stack.children);
+      if(!items.length)return;
+      const vRect=vDiv.getBoundingClientRect();
+      if(!vRect.height)return;
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('width',vw);svg.setAttribute('height',vRect.height);
+      svg.setAttribute('viewBox',`0 0 ${vw} ${vRect.height}`);
+      svg.style.cssText='position:absolute;top:0;left:0;overflow:visible;';
+      const mx=vw*0.5;
+      const first=items[0].getBoundingClientRect();
+      const last=items[items.length-1].getBoundingClientRect();
+      const y1=first.top+first.height/2-vRect.top;
+      const y2=last.top+last.height/2-vRect.top;
+      let lines=`<line x1="${mx}" y1="${y1}" x2="${mx}" y2="${y2}" stroke="var(--line)" stroke-width="0.8"/>`;
+      items.forEach(el=>{const r=el.getBoundingClientRect();const y=r.top+r.height/2-vRect.top;lines+=`<line x1="${mx}" y1="${y}" x2="${vw}" y2="${y}" stroke="var(--line)" stroke-width="0.8"/>`;});
+      svg.innerHTML=lines;vDiv.appendChild(svg);
+    },0);
+  }
+  return wrap;
+}
+
+function buildCard(node,depth){
+  const div=document.createElement('div');
+  div.className='nc'+(selected===node.id?' sel':'')+(editingId===node.id?' editing':'');
+  div.dataset.id=node.id;
+  if(depth===0){
+    div.style.cssText=`background:${node.color};border-color:${node.color};min-width:120px;justify-content:center;`;
+  } else if(node.color&&node.children){
+    div.style.cssText=`border-left:2.5px solid ${node.color};padding-left:8px;`;
+  } else if(depth>=2){
+    div.style.cssText='background:var(--bg);box-shadow:none;border-color:var(--border);';
+  }
+  if(node.children&&node.children.length){
+    const arr=document.createElement('span');
+    arr.className='arr'+(collapsed[node.id]?' c':'');
+    arr.textContent='▾';
+    if(depth===0)arr.style.color='rgba(255,255,255,0.6)';
+    div.appendChild(arr);
+  }
+  if(editingId===node.id){
+    const inp=document.createElement('input');
+    inp.className='edit-inp';inp.value=node.label;
+    if(depth===0)inp.style.cssText='color:#fff;font-weight:600;';
+    inp.addEventListener('blur',()=>{node.label=inp.value;editingId=null;render();});
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){node.label=inp.value;editingId=null;render();}e.stopPropagation();});
+    div.appendChild(inp);setTimeout(()=>inp.focus(),0);
+  } else {
+    const lbl=document.createElement('span');
+    const cls=depth===0?'root':depth===1?'l1':depth===2?'bold':'';
+    lbl.className='lbl'+(cls?' '+cls:'');
+    lbl.textContent=node.label;
+    if(depth===0)lbl.style.color=node.textColor||'#fff';
+    div.appendChild(lbl);
+    if((node.func||node.arch)&&depth>0){
+      const dot=document.createElement('span');
+      dot.className='dot';div.appendChild(dot);
+    }
+  }
+  div.addEventListener('click',e=>{
+    e.stopPropagation();
+    if(editingId===node.id)return;
+    if(selected===node.id&&node.children)collapsed[node.id]=!collapsed[node.id];
+    selected=node.id;render();
+    if((node.func||node.arch)&&depth>0)showPanel(node);else closePanel();
+  });
+  div.addEventListener('dblclick',e=>{e.stopPropagation();editingId=node.id;render();});
+  return div;
+}
+
+function showPanel(node){
+  const p=document.getElementById('metaPanel');
+  document.getElementById('mp-title').textContent=node.label;
+  const fr=document.getElementById('mp-f'),ar=document.getElementById('mp-a');
+  if(node.func){document.getElementById('mp-fv').textContent=node.func;fr.style.display='flex';}else fr.style.display='none';
+  if(node.arch){document.getElementById('mp-av').textContent=node.arch;ar.style.display='flex';}else ar.style.display='none';
+  p.classList.add('show');
+}
+function closePanel(){document.getElementById('metaPanel').classList.remove('show');}
+
+function addChild(){if(!selected){alert('请先选中一个节点');return;}const parent=getNode(selected);if(!parent)return;const nid='n'+(++nc);if(!parent.children)parent.children=[];parent.children.push({id:nid,label:'新节点'});collapsed[selected]=false;selected=nid;render();}
+function addSibling(){if(!selected||selected==='root'){alert('请先选中一个非根节点');return;}const info=getParent(selected);if(!info)return;const nid='n'+(++nc);info.parent.children.splice(info.index+1,0,{id:nid,label:'新节点'});selected=nid;render();}
+function deleteSel(){if(!selected||selected==='root')return;const info=getParent(selected);if(!info)return;info.parent.children.splice(info.index,1);selected=null;closePanel();render();}
+function renameSel(){if(!selected)return;editingId=selected;render();}
+function expandAll(node){if(!node)node=DATA;collapsed[node.id]=false;if(node.children)node.children.forEach(expandAll);render();}
+function collapseAll(node,isRoot){if(!node){node=DATA;isRoot=true;}if(!isRoot)collapsed[node.id]=true;if(node.children)node.children.forEach(c=>collapseAll(c,false));render();}
+
+document.addEventListener('click',()=>{selected=null;closePanel();render();});
+render();
+</script>
+</body>
+</html>
